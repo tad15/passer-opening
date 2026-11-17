@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Passer l'opening</title>
+<style>
+  body { width: 290px; margin: 0; padding: 14px 16px; font: 14px/1.45 system-ui, sans-serif; background: #15161c; color: #ececf0; }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  label { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
+  input { margin-top: 3px; }
+  h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa8; margin: 16px 0 6px; }
+  dl { margin: 0; font-size: 12.5px; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+  dt { color: #9a9aa8; }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  #etat { margin: 8px 0 0; font-size: 12.5px; color: #d7d7e0; }
+  summary { margin-top: 10px; cursor: pointer; font-size: 12.5px; color: #c9c7d4; }
+  #journal { max-height: 240px; overflow: auto; background: #0e0e12; border: 1px solid #2c2c36;
+             border-radius: 8px; padding: 8px; font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace;
+             color: #d7d7e0; white-space: pre-wrap; margin: 8px 0; }
+  #copier { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer;
+            color: #fff; font: 600 13px/1 system-ui, sans-serif;
+            background: linear-gradient(135deg, #FF5F8A, #993953); }
+</style>
+</head>
+<body>
+<h1>Passer l'opening</h1>
+<label><input type="checkbox" id="auto"> <span>Sauter l'opening automatiquement, sans afficher le bouton</span></label>
+<h2>Dernière page analysée</h2>
+<dl>
+  <dt>Site</dt><dd id="site">—</dd>
+  <dt>Titre</dt><dd id="titre">—</dd>
+  <dt>Saison</dt><dd id="saison">—</dd>
+  <dt>Épisode</dt><dd id="episode">—</dd>
+  <dt>Fiche MAL</dt><dd id="mal">—</dd>
+  <dt>Son du lecteur</dt><dd id="son">—</dd>
+</dl>
+<p id="etat">—</p>
+<details>
+  <summary>Journal détaillé</summary>
+  <pre id="journal">—</pre>
+  <button id="copier">Copier le journal</button>
+</details>
+<script src="reglages.js"></script>
+</body>
+</html>
