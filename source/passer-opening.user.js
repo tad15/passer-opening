@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Passer l'opening — Anime-Sama, FRAnime, VoirAnime
 // @namespace    https://github.com/tad15
-// @version      2.9
+// @version      3.7
 // @description  Bouton « Passer l'opening » et « Passer l'ending » sur les lecteurs des sites d'animes, avec les minutages d'AniSkip.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -314,6 +314,51 @@
       },
     },
     {
+      nom: 'AniZone',
+      reconnait: function (h) { return /(^|\.)anizone\./i.test(h); },
+      infos: function () {
+        // AniZone écrit deux titres différents : le titre de niveau 1 est en anglais
+        // (« The Ramparts of Ice »), celui de l'onglet en romaji (« Koori no Jouheki »). On lit
+        // les deux : si AniList ne connaît pas le premier, le second le rattrape.
+        //
+        // L'année entre parenthèses n'apparaît que sur les séries à plusieurs saisons
+        // (« Oshi no Ko (2024) »). Elle est donc facultative — l'exiger faisait échouer la
+        // reconnaissance sur tous les animes d'une seule saison.
+        const u = location.pathname.match(/\/anime\/[^/]+\/(\d{1,4})\b/);
+        let ep = u ? parseInt(u[1], 10) : 0;
+
+        const lire = function (brut) {
+          let t = String(brut || '').replace(/\s+/g, ' ').trim();
+          t = t.replace(/\s*[—–-]\s*AniZone\s*$/i, '');
+          const e = t.match(/Episode\s*(\d{1,4})/i);
+          if (e && !ep) ep = parseInt(e[1], 10);
+          t = t.replace(/^\s*Episode\s*\d{1,4}\s*[-–—]\s*/i, '')
+               .replace(/\s*[-–—]\s*Episode\s*\d{1,4}\s*$/i, '').trim();
+          // l'année se retire avant les guillemets : « "Oshi no Ko" (2024) » laisserait sinon
+          // un guillemet collé au titre, qu'AniList ne reconnaîtrait pas.
+          const an = t.match(/\((\d{4})\)\s*$/);
+          t = t.replace(/\s*\(\d{4}\)\s*$/, '').replace(/^["«“]+|["»”]+$/g, '').trim();
+          return { titre: t, annee: an ? parseInt(an[1], 10) : 0 };
+        };
+
+        const a = lire((document.querySelector('h1') || {}).textContent);
+        const b = lire(document.title);
+        const principal = a.titre || b.titre;
+        if (!ep || !principal) return null;
+        const net = separerSaison(principal);
+        if (!net.titre) return null;
+
+        const autres = [];
+        [b.titre, a.titre].forEach(function (x) {
+          if (x && x !== principal) { const n = separerSaison(x).titre; if (n) autres.push(n); }
+        });
+        const out = { titre: net.titre, alternatifs: autres, saison: net.saison || 0, episode: ep };
+        const annee = a.annee || b.annee;
+        if (annee) out.annee = annee;
+        return out;
+      },
+    },
+    {
       nom: 'générique',
       reconnait: function () { return true; },
       infos: function () {
@@ -332,16 +377,46 @@
           const u = location.href.match(/[-/_](?:episode|ep)[-_]?(\d{1,4})\b/i);
           if (u) ep = parseInt(u[1], 10);
         }
+        if (!ep) {
+          // /watch/saga-of-tanya-the-evil/4 — le dernier segment EST le numéro d'épisode.
+          // On ne l'accepte que derrière un mot connu, pour ne pas prendre une année ou un
+          // identifiant pour un épisode.
+          const seg = location.pathname.match(/^\/(?:watch|anime|episode|voir|serie|series)\/[^/]+\/(\d{1,4})\/?$/i);
+          if (seg) ep = parseInt(seg[1], 10);
+        }
+        if (!ep) {
+          // Beaucoup de sites rangent l'épisode dans la partie « ? » de l'adresse : ?ep=1
+          try {
+            const q = new URLSearchParams(location.search);
+            const n = q.get('ep') || q.get('episode') || q.get('numero');
+            if (n && /^\d{1,4}$/.test(n)) ep = parseInt(n, 10);
+          } catch (e) { /* adresse exotique */ }
+        }
+        if (!ep) {
+          // Beaucoup de sites ne mettent rien dans l'adresse mais écrivent « Episode 12 » en
+          // toutes lettres dans le titre de la page ou le titre de l'onglet.
+          const texte = (((document.querySelector('h1') || {}).textContent || '') + ' ' + document.title)
+            .replace(/\s+/g, ' ');
+          // Pas de \b devant la classe : en JavaScript, une limite de mot ne se forme pas
+          // entre une espace et un « É ». « Épisode 4 » échappait au motif pour cette seule
+          // raison, alors que « Episode 4 » passait.
+          const e = texte.match(/(?:^|[^A-Za-z0-9])(?:[ÉéEe]pisodes?|ep)\.?\s*(\d{1,4})(?![0-9])/);
+          if (e) ep = parseInt(e[1], 10);
+        }
         if (!ep) return null;
         const s = location.href.match(/\bsaison[-_]?(\d{1,2})|\bseason[-_]?(\d{1,2})|\bs(\d{1,2})e\d/i);
         const saison = s ? parseInt(s[1] || s[2] || s[3], 10) : 1;
         const og = document.querySelector('meta[property="og:title"]');
         let titre = (og && og.content) || (document.querySelector('h1') || {}).textContent || document.title;
-        titre = String(titre).split(/[|–·]|\s-\s/)[0]
-          .replace(/\b(vostfr|vf|vo|streaming|en\s+ligne|episode\s*\d+|s\d+\s*e\d+)\b/gi, ' ')
+        titre = String(titre).split(/[|–—·]|\s-\s/)[0]
+          .replace(/(?:^|[^A-Za-z0-9])[ÉéEe]pisodes?\.?\s*\d{1,4}/g, ' ')
+          .replace(/\b(vostfr|vf|vo|va|streaming|en\s+ligne|s\d+\s*e\d+)\b/gi, ' ')
           .replace(/\s+/g, ' ').trim();
         const net = separerSaison(titre);
         if (!net.titre) return null;
+        const an = String(titre).match(/\((\d{4})\)/);
+        if (an) return { titre: net.titre.replace(/\s*\(\d{4}\)\s*/, ' ').trim(),
+                         saison: saison || net.saison || 0, annee: parseInt(an[1], 10), episode: ep };
         return { titre: net.titre, saison: saison || net.saison || 1, episode: ep };
       },
     },
@@ -463,10 +538,45 @@
    * saison, puis on redescend les SEQUEL autant de fois qu'il faut. Le résultat ne dépend plus de
    * l'endroit où la recherche est tombée.
    */
+  const Q_ANNEE = 'query($s:String){ Page(perPage:8){ media(search:$s, type:ANIME, sort:SEARCH_MATCH)' +
+    '{ id idMal format startDate{ year } } } }';
+
+  /**
+   * Résolution par l'année de diffusion.
+   *
+   * Certains sites ne numérotent pas les saisons : ils écrivent « Oshi no Ko (2024) ». L'année est
+   * alors plus sûre qu'un numéro, à condition de la confronter aux candidats d'AniList au lieu de
+   * remonter la chaîne des préquelles — qui ramènerait à la première saison.
+   */
+  async function parAnnee(titre, annee) {
+    const cle = 'an:' + titre.toLowerCase() + '#' + annee;
+    const cache = lire(cle);
+    if (cache !== null && cache !== undefined) return cache;
+    let mal = 0;
+    try {
+      const r = await anilist(Q_ANNEE, { s: titre });
+      const liste = (r && r.data && r.data.Page && r.data.Page.media) || [];
+      for (let i = 0; i < liste.length; i++) {
+        const m = liste[i], f = m.format, a = m.startDate && m.startDate.year;
+        if (a === annee && (f === 'TV' || f === 'TV_SHORT' || f === 'ONA')) { mal = m.idMal || 0; break; }
+      }
+    } catch (e) { mal = 0; }
+    ecrire(cle, mal);
+    return mal;
+  }
+
   async function malDeLaSaison(infos) {
     const saison = infos.saison;
+    if (infos.annee) {
+      const parAn = await parAnnee(infos.titre, infos.annee);
+      if (parAn) return parAn;
+    }
     const base = await baseAniList(infos.titre, infos.slug, infos.alternatifs, infos.fiche);
     if (!base) return 0;
+    // Saison inconnue (le site n'en donne pas), ou année annoncée mais introuvable parmi les
+    // candidats : la meilleure correspondance de recherche vaut mieux que la racine de la série,
+    // qu'on atteindrait en remontant les préquelles et qui serait la mauvaise saison.
+    if (infos.annee || !saison) return base.mal;
     const cle = 'sais:' + base.id + '#' + saison;
     const cache = lire(cle);
     if (cache !== null && cache !== undefined) return cache;
@@ -529,7 +639,10 @@
       }
       if (diag && diag.etat && diag.etat !== dernierEtatNote) {
         dernierEtatNote = diag.etat;
-        JOURNAL.ligne((diag.titre ? '« ' + diag.titre +' » S' + diag.saison + ' ép. ' + diag.episode +
+        // La saison est un numéro sur la plupart des sites, mais une année sur certains :
+        // « S2 » d'un côté, « année 2026 » de l'autre — d'où le test plutôt qu'un « S » collé.
+        const sai = (typeof diag.saison === 'number' && diag.saison) ? 'S' + diag.saison : String(diag.saison || '—');
+        JOURNAL.ligne((diag.titre ? '« ' + diag.titre + ' » ' + sai + ' ép. ' + diag.episode +
           ' — MAL ' + (diag.mal || '?') + ' — ' : '') + diag.etat);
       }
     }
@@ -574,7 +687,10 @@
           } catch (e) { ranges = []; }
           occupe = false;
           noter({
-            site: site.nom, titre: infos.titre, saison: infos.saison, episode: infos.episode, mal: mal,
+            site: site.nom,
+            titre: infos.titre + (infos.annee ? ' (' + infos.annee + ')' : ''),
+            saison: infos.saison || (infos.annee ? 'année ' + infos.annee : '—'),
+            episode: infos.episode, mal: mal,
             etat: !mal ? "aucune fiche trouvée pour ce titre et cette saison"
                 : !ranges.length ? "fiche MyAnimeList " + mal + " trouvée, mais AniSkip n'a pas d'opening pour cet épisode"
                 : ranges.map(function (r) { return r.type + ' ' + Math.round(r.debut) + 's → ' + Math.round(r.fin) + 's'; }).join(', '),
@@ -613,11 +729,16 @@
     DEBUT: 20,          // 5 s servent de signature de départ
     ctx: null, analyseur: null, branche: null,
     frames: [], dernierIndex: -1, cle: '', episode: 0, modele: null, recent: [],
-    energies: [], idx0: 0, reference: 0, refPour: -1, dernierTrace: 0,
+    energies: [], idx0: 0, reference: 0, refPour: -1, dernierTrace: 0, duree: 0,
 
     /** Branche l'analyseur sur la vidéo, une seule fois, sans couper le son. */
     brancher: function (v) {
       if (this.branche === v) return true;
+      // Changement de balise vidéo — publicité puis épisode, ou changement de lecteur : le
+      // relevé précédent décrit un AUTRE média. Le garder fausse le « recul » et fait croire
+      // qu'on a entendu ce qui précède le générique alors qu'on a entendu une publicité.
+      this.energies = []; this.recent = []; this.idx0 = 0;
+      this.reference = 0; this.refPour = -1; this.dernierIndex = -1; this.dernierTrace = 0;
       try {
         if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         const source = this.ctx.createMediaElementSource(v);
@@ -667,6 +788,15 @@
     echantillonner: function (v) {
       if (!this.analyseur || v.paused || v.muted || v.volume < 0.02) return;
       if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(function () {});
+      // La durée change quand le lecteur passe de la publicité à l'épisode dans la même
+      // balise : le relevé d'avant ne décrit plus le même film.
+      if (isFinite(v.duration) && v.duration > 0) {
+        if (this.duree && Math.abs(this.duree - v.duration) > 1) {
+          this.energies = []; this.recent = []; this.idx0 = 0;
+          this.reference = 0; this.refPour = -1; this.dernierIndex = -1;
+        }
+        this.duree = v.duration;
+      }
       const idx = Math.floor(v.currentTime / this.PAS);
       if (idx < 0 || idx >= this.MAX || idx === this.dernierIndex) return;
       // Un saut dans la vidéo — barre de progression, reprise de lecture — rend le relevé
@@ -861,6 +991,88 @@
     let ranges = [], auto = false, sautes = {}, bouton = null, video = null;
     let genericSon = null;   // générique reconnu au son, quand AniSkip ne sait rien
     let jsonRanges = '';
+    let prioriteChapitres = false;   // des repères exacts l'emportent sur AniSkip
+
+    /**
+     * Repères du lecteur.
+     *
+     * Certains sites publient un fichier de chapitres qui nomme lui-même l'intro et le générique
+     * de fin — AniZone en sert un par épisode. Ces minutages décrivent LEUR copie de l'épisode :
+     * ils sont exacts, là où ceux d'AniSkip viennent d'une autre copie et demandent un recalage
+     * à l'oreille. Quand ils existent, ils l'emportent ; sinon rien ne change.
+     */
+    let chapitresVus = '', chapitresRanges = null, chapitresEnCours = false;
+
+    /** « Intro », « Credits »… → le type de générique, ou rien si le chapitre est une scène. */
+    function classerChapitre(nom) {
+      if (/^(intro|opening|op)\b/i.test(nom)) return 'opening';
+      if (/^(credits|outro|ending|ed)\b/i.test(nom)) return 'ending';
+      return '';
+    }
+
+    function poserChapitres(out, provenance) {
+      if (!out.length) return false;
+      out.sort(function (a, b) { return a.debut - b.debut; });
+      chapitresRanges = out;
+      prioriteChapitres = true;
+      jsonRanges = JSON.stringify(out);
+      ranges = out;
+      sautes = {};
+      JOURNAL.ligne('repères du lecteur (exacts, ' + provenance + ') : ' + out.map(function (r) {
+        return r.type + ' ' + Math.round(r.debut) + '→' + Math.round(r.fin);
+      }).join(', '));
+      return true;
+    }
+
+    function chapitresDuLecteur() {
+      if (chapitresRanges) return;
+
+      // 1) Une piste de chapitres créée par le lecteur lui-même, sans balise dans la page.
+      //    C'est le cas des lecteurs qui construisent leurs repères en JavaScript : rien à
+      //    télécharger, les repères sont déjà là, il suffit de réveiller la piste.
+      if (video && video.textTracks) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const t = video.textTracks[i];
+          if (t.kind !== 'chapters') continue;
+          try { if (t.mode === 'disabled') t.mode = 'hidden'; } catch (e) { continue; }
+          const cues = t.cues;
+          if (!cues || !cues.length) continue;   // pas encore chargée : on repassera
+          const out = [];
+          for (let c = 0; c < cues.length; c++) {
+            const type = classerChapitre(String(cues[c].text || '').trim());
+            if (type && cues[c].endTime > cues[c].startTime) {
+              out.push({ type: type, debut: cues[c].startTime, fin: cues[c].endTime, sur: true });
+            }
+          }
+          if (poserChapitres(out, 'piste du lecteur')) return;
+        }
+      }
+
+      // 2) Un fichier de chapitres déclaré dans la page, qu'on va chercher nous-mêmes.
+      const el = document.querySelector('track[kind="chapters"][src]');
+      if (!el || !el.src) return;
+      if (el.src === chapitresVus || chapitresEnCours) return;
+      chapitresVus = el.src;
+      chapitresEnCours = true;
+      fetch(el.src, { credentials: 'omit' })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (texte) {
+          chapitresEnCours = false;
+          if (!texte) return;
+          const lignes = texte.split(/\r?\n/), out = [];
+          for (let i = 0; i < lignes.length; i++) {
+            const m = lignes[i].match(/(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/);
+            if (!m) continue;
+            const type = classerChapitre((lignes[i + 1] || '').trim());
+            if (!type) continue;
+            const d = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
+            const f = (+m[5]) * 3600 + (+m[6]) * 60 + (+m[7]) + (+m[8]) / 1000;
+            if (f > d) out.push({ type: type, debut: d, fin: f, sur: true });
+          }
+          poserChapitres(out, 'fichier de chapitres');
+        })
+        .catch(function () { chapitresEnCours = false; });
+    }
 
     window.addEventListener('message', function (e) {
       const d = e.data;
@@ -868,6 +1080,7 @@
       // on ne remplace les intervalles que s'ils ont vraiment changé : sinon le calage
       // mesuré sur la musique serait perdu à chaque message reçu
       const neuf = JSON.stringify(d.ranges || []);
+      if (prioriteChapitres) return;   // le lecteur publie ses propres repères : on s'y tient
       if (neuf !== jsonRanges) {
         jsonRanges = neuf; ranges = d.ranges || []; sautes = {};
         JOURNAL.ligne('minutages reçus : ' + (ranges.length
@@ -911,6 +1124,35 @@
       return document.body;
     }
 
+    /**
+     * Où poser le bouton.
+     *
+     * Il reste en « position fixe » — c'est ce qui l'empêche d'être rogné par un parent du
+     * lecteur — mais ses distances sont calculées depuis le cadre de la VIDÉO et non depuis le
+     * coin de la fenêtre. Sur un site où le lecteur occupe toute la largeur, le résultat est
+     * identique à avant ; sur un site qui lui colle une liste d'épisodes à droite, le bouton
+     * reste sur la vidéo au lieu d'aller se poser sur la liste.
+     */
+    const MARGE_DROITE = 22, MARGE_BAS = 112;
+    function ancrer() {
+      if (!bouton) return;
+      const fs = document.fullscreenElement || document.webkitFullscreenElement ||
+                 document.mozFullScreenElement || document.msFullscreenElement;
+      if (fs || !video) {
+        // en plein écran, le lecteur EST la fenêtre : les distances d'origine conviennent
+        bouton.style.right = MARGE_DROITE + 'px';
+        bouton.style.bottom = MARGE_BAS + 'px';
+        return;
+      }
+      const r = video.getBoundingClientRect();
+      if (!r.width || !r.height) return;   // vidéo masquée : on ne touche à rien
+      const droite = window.innerWidth - r.right + MARGE_DROITE;
+      const bas = window.innerHeight - r.bottom + MARGE_BAS;
+      // le bouton doit rester visible même si la vidéo sort partiellement de l'écran
+      bouton.style.right = Math.min(Math.max(droite, 10), Math.max(10, window.innerWidth - 220)) + 'px';
+      bouton.style.bottom = Math.min(Math.max(bas, 10), Math.max(10, window.innerHeight - 60)) + 'px';
+    }
+
     function placer() {
       if (!bouton) return;
       const cible = hote();
@@ -919,8 +1161,13 @@
     }
 
     ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(function (e) {
-      document.addEventListener(e, placer);
+      document.addEventListener(e, function () { placer(); ancrer(); });
     });
+
+    // Le cadre de la vidéo bouge quand la page défile ou change de taille : le bouton suit,
+    // sans attendre le prochain tour de surveillance.
+    window.addEventListener('scroll', ancrer, { passive: true });
+    window.addEventListener('resize', ancrer, { passive: true });
 
     function creerBouton() {
       // Même dessin que dans AnimeLover : pastille arrondie, dégradé rose vers rose sombre,
@@ -999,6 +1246,9 @@
       // AniSkip donne l'intervalle d'une autre copie de l'épisode : le générique peut y
       // commencer quelques secondes plus tôt ou plus tard. Quand le son est analysable, on
       // attend que la musique parte vraiment, puis on décale tout l'intervalle d'autant.
+      // Un repère publié par le lecteur se rapporte à la copie qu'on est en train de regarder :
+      // le corriger à l'oreille ne pourrait que le dégrader.
+      if (courant && courant.sur) courant.cale = true;
       if (courant && courant !== genericSon && !courant.cale) {
         const sonPossible = !!Son.analyseur;
         const tropTard = t >= courant.debut + 25;
@@ -1059,6 +1309,7 @@
         JOURNAL.ligne('t=' + t.toFixed(1) + ' BOUTON AFFICHÉ (' + courant.type + ", jusqu'à " + Math.round(courant.fin) + ' s)');
       }
       bouton.style.display = 'flex';
+      ancrer();
     }
 
     // la vidéo apparaît souvent longtemps après la page
@@ -1073,6 +1324,7 @@
         v.addEventListener('seeked', surveiller);
         v.addEventListener('ended', function () { Son.ranger(); });
       }
+      chapitresDuLecteur();
       surveiller();
 
       // Un mot sur l'état du son, pour le diagnostic affiché côté site : c'est la seule façon de

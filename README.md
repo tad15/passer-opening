@@ -16,6 +16,33 @@ vraiment partie.
 Aucune donnée personnelle collectée, rien transmis à l'auteur, aucune publicité —
 voir la [politique de confidentialité](https://tad15.github.io/passer-opening/confidentialite.html).
 
+## Sites reconnus
+
+Quatre adaptateurs — **Anime-Sama**, **FRAnime**, **VoirAnime**, **AniZone** — plus un adaptateur
+générique qui s'applique partout ailleurs. Il retrouve le numéro d'épisode dans un menu déroulant,
+dans l'adresse (`/episode-12`, dernier segment de `/watch/<titre>/12`, `?ep=12`) ou dans le titre
+de la page, et le titre dans `og:title`, le premier titre de niveau 1 ou celui de l'onglet.
+
+Deux particularités valent d'être connues :
+
+- **AniZone** ne numérote pas ses saisons, il écrit l'année — « Oshi no Ko (2024) ». Cette année
+  est confrontée aux candidats d'AniList, ce qui vaut mieux que de remonter la chaîne des
+  préquelles avec un numéro de saison deviné. Le site affiche aussi deux titres, anglais et
+  romaji ; les deux sont tentés.
+- Les sites français écrivent « **Épisode** » avec un accent. Une limite de mot JavaScript (`\b`)
+  ne se forme pas devant un caractère accentué : le motif de reconnaissance ne doit donc pas en
+  commencer par une.
+
+## D'où viennent les minutages
+
+Dans l'ordre de confiance :
+
+1. **Les repères du lecteur**, quand le site en publie — un fichier de chapitres déclaré dans la
+   page, ou une piste créée en JavaScript. Ils décrivent la copie exactement regardée, donc ils
+   sont exacts et ne sont jamais recalés.
+2. **AniSkip**, sinon. Ces minutages viennent d'une autre copie de l'épisode : ils sont recalés à
+   l'oreille, et le saut atterrit 1,5 s avant la fin annoncée pour ne pas manger de dialogue.
+
 ## Ce que contient ce dépôt
 
 | Dossier | Contenu |
