@@ -89,8 +89,10 @@ tous les sites : dans le script Tampermonkey il est rangé par `GM_setValue`, et
 stockage local de la page, qui est cloisonné par domaine — l'activer sur un site ne l'activait
 alors nulle part ailleurs.
 
-Un épisode déjà en cours garde le minutage reçu au départ : recharger la page applique le
-changement tout de suite. Le journal écrit `saut automatique : activé` ou `désactivé` dès que la
-page du lecteur reçoit le réglage, ce qui permet de voir d'un coup d'œil s'il est bien arrivé.
+Le changement s'applique en cours d'épisode, sans rien recharger : la partie « site » rediffuse
+les réglages toutes les secondes et demie, à ses iframes **et** à sa propre page — sans ce second
+envoi, un lecteur situé dans la page principale ne recevait le réglage qu'une fois au démarrage.
+Le journal écrit `saut automatique : activé` ou `désactivé` dès que la page du lecteur le reçoit,
+ce qui permet de voir d'un coup d'œil s'il est bien arrivé.
 
 Contact : animelover.app@gmail.com

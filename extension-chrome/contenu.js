@@ -571,6 +571,10 @@
       for (let i = 0; i < cadres.length; i++) {
         try { cadres[i].contentWindow.postMessage(message, '*'); } catch (e) { /* autre origine : normal */ }
       }
+      // Et à cette page elle-même : sur les sites dont la vidéo n'est pas dans une iframe, la
+      // partie lecteur tourne ici. Sans cet envoi elle ne recevait les réglages qu'une fois, au
+      // démarrage — activer le saut automatique en cours d'épisode restait sans effet.
+      try { window.postMessage(message, '*'); } catch (e) { /* page verrouillée */ }
     }
 
     // un lecteur qui vient de se charger réclame les minutages
@@ -998,6 +1002,12 @@
       // on ne remplace les intervalles que s'ils ont vraiment changé : sinon le calage
       // mesuré sur la musique serait perdu à chaque message reçu
       const neuf = JSON.stringify(d.ranges || []);
+      // Le réglage se relit toujours, même quand les repères du lecteur l'emportent sur les
+      // minutages reçus : il ne concerne pas la provenance des heures mais le comportement.
+      if (!!d.auto !== auto) {
+        auto = !!d.auto;
+        JOURNAL.ligne('saut automatique : ' + (auto ? 'activé' : 'désactivé'));
+      }
       if (prioriteChapitres) return;   // le lecteur publie ses propres repères : on s'y tient
       if (neuf !== jsonRanges) {
         jsonRanges = neuf; ranges = d.ranges || []; sautes = {};
