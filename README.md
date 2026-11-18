@@ -95,4 +95,27 @@ envoi, un lecteur situé dans la page principale ne recevait le réglage qu'une 
 Le journal écrit `saut automatique : activé` ou `désactivé` dès que la page du lecteur le reçoit,
 ce qui permet de voir d'un coup d'œil s'il est bien arrivé.
 
+## Signaler un problème
+
+La fenêtre de l'extension, et le menu Tampermonkey, proposent « Signaler un problème » : le
+diagnostic s'affiche, se télécharge en `signalement.txt` et peut partir par courriel. Rien n'en
+part sans un clic.
+
+Le fichier porte tout ce qui a servi à réparer les pannes rencontrées jusqu'ici, parce que chacune
+avait manqué d'un de ces éléments :
+
+| Ce qu'il contient | Ce que ça a permis de trouver |
+| --- | --- |
+| L'adresse de l'épisode, **ses paramètres gardés**, jetons masqués | Sur Miruro le numéro d'épisode ne vit que dans `?ep=1` : une adresse coupée au `?` ne mène nulle part |
+| Les titres bruts lus sur la page : onglet, `og:title`, `h1`, listes déroulantes | Un titre écrit autrement que prévu est de loin la panne la plus fréquente ; AniZone n'écrit qu'un titre anglais là où anime-sama écrit le romaji |
+| Les titres essayés sur AniList, un par un, avec leur réponse | Montre à quelle étape du dégrossissage la recherche a échoué |
+| Une heure sur chaque ligne du journal, commune aux deux pages | « Reconnu, puis plus reconnu » ne se lit pas sans horloge |
+| Reconnaissances, pertes, changements d'adresse sans rechargement | Les sites changent d'épisode sans recharger : ce compteur dit si la page a décroché |
+| Les nouvelles de la page du lecteur, et depuis quand | Distingue « l'anime n'est pas reconnu » de « la vidéo n'a pas été trouvée », deux pannes jumelles aux causes opposées |
+| Balises vidéo, domaine du flux, provenance des repères | Dit si le bouton s'est fié aux chapitres du lecteur ou à AniSkip |
+| Référence sonore et les deux seuils | Tout le calage à l'oreille se joue sur ces trois nombres |
+| Dernier saut : d'où à où, à quelle heure | Un saut qui atterrit mal est invisible dans l'état final du lecteur |
+| État du bouton : jamais créé, affiché, caché | Sépare « le bouton n'est pas venu » de « il est venu trop tard » |
+| Version, canal (Tampermonkey, extension Chrome, extension Firefox), navigateur, taille de fenêtre | Le même bug ne se corrige pas au même endroit selon le canal |
+
 Contact : animelover.app@gmail.com

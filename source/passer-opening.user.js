@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Passer l'opening — Anime-Sama, FRAnime, VoirAnime
 // @namespace    https://github.com/tad15
-// @version      3.9
+// @version      3.14
 // @description  Bouton « Passer l'opening » et « Passer l'ending » sur les lecteurs des sites d'animes, avec les minutages d'AniSkip.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -53,11 +53,56 @@
   let LIGNES = [];
   function journal(l) { LIGNES = l; }
 
-  function montrerJournal() {
+  let RAPPORT = null;
+  function exposerRapport(fn) { RAPPORT = fn; }
+
+  const DESTINATAIRE = 'animelover.app@gmail.com';
+
+  function nomFichier() { return 'signalement.txt'; }
+
+  /** Enregistre le signalement comme fichier texte, pour pouvoir le joindre au message. */
+  function telecharger(texte) {
+    try {
+      const lien = document.createElement('a');
+      lien.href = URL.createObjectURL(new Blob([texte], { type: 'text/plain;charset=utf-8' }));
+      lien.download = nomFichier();
+      document.body.appendChild(lien);
+      lien.click();
+      setTimeout(function () { URL.revokeObjectURL(lien.href); lien.remove(); }, 2000);
+    } catch (e) { alert("Le téléchargement a échoué : copie le texte à la main."); }
+  }
+
+  /**
+   * Ouvre un message pré-rempli.
+   *
+   * Aucun navigateur ne laisse une extension envoyer un mail toute seule, et c'est heureux :
+   * l'envoi reste un geste de l'utilisateur. On prépare donc tout — destinataire, objet, début du
+   * rapport — et il ne reste qu'à joindre le fichier et cliquer sur Envoyer.
+   */
+  function envoyerMail(texte) {
+    const objet = "Signalement Passer l'opening — " + location.hostname;
+    const corps = "Le signalement complet est dans le fichier joint (il vient d'être téléchargé).\n\n" +
+      "Début du rapport :\n\n" + texte.slice(0, 1200) + "\n\n[...]";
+    const gmail = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(DESTINATAIRE) +
+      '&su=' + encodeURIComponent(objet) + '&body=' + encodeURIComponent(corps);
+    const f = window.open(gmail, '_blank');
+    if (!f) location.href = 'mailto:' + DESTINATAIRE + '?subject=' + encodeURIComponent(objet) +
+      '&body=' + encodeURIComponent(corps);
+  }
+
+  function montrerJournal() { montrerTexte("Journal (" + LIGNES.length + ' lignes)', LIGNES.join('\n') ||
+    "Journal vide. Lance la lecture d'un épisode, laisse tourner jusqu'au générique, puis rouvre ce menu."); }
+
+  function montrerSignalement() {
+    if (!RAPPORT) { alert("Le signalement n'est pas encore prêt : attends que la page soit analysée."); return; }
+    const texte = RAPPORT();
+    montrerTexte('Signalement — télécharge le fichier, puis joins-le au message', texte, texte);
+  }
+
+  function montrerTexte(titreTexte, contenu, pourTicket) {
     const ancien = document.getElementById('po-journal');
     if (ancien) ancien.remove();
-    const texte = LIGNES.length ? LIGNES.join('\n')
-      : "Journal vide. Lance la lecture d'un épisode, laisse tourner jusqu'au générique, puis rouvre ce menu.";
+    const texte = contenu;
 
     const fond = document.createElement('div');
     fond.id = 'po-journal';
@@ -75,7 +120,7 @@
     ].join(';'));
 
     const titre = document.createElement('div');
-    titre.textContent = "Passer l'opening — journal (" + LIGNES.length + ' lignes)';
+    titre.textContent = "Passer l'opening — " + titreTexte;
     titre.setAttribute('style', 'font-weight:700;font-size:16px');
 
     const zone = document.createElement('textarea');
@@ -109,6 +154,19 @@
     fermer.setAttribute('style', style.concat(['background:#2c2c36', 'color:#eceaf3']).join(';'));
     fermer.addEventListener('click', function () { fond.remove(); });
 
+    if (pourTicket) {
+      const fichier = document.createElement('button');
+      fichier.textContent = 'Télécharger le fichier';
+      fichier.setAttribute('style', style.concat(['background:#2c2c36', 'color:#eceaf3']).join(';'));
+      fichier.addEventListener('click', function () { telecharger(pourTicket); });
+      barre.appendChild(fichier);
+
+      const mail = document.createElement('button');
+      mail.textContent = 'Préparer le mail';
+      mail.setAttribute('style', style.concat(['background:#2c2c36', 'color:#eceaf3']).join(';'));
+      mail.addEventListener('click', function () { telecharger(pourTicket); envoyerMail(pourTicket); });
+      barre.appendChild(mail);
+    }
     barre.appendChild(copier); barre.appendChild(fermer);
     boite.appendChild(titre); boite.appendChild(zone); boite.appendChild(barre);
     fond.appendChild(boite);
@@ -117,7 +175,8 @@
   }
 
   if (typeof GM_registerMenuCommand === 'function' && window.top === window.self) {
-    GM_registerMenuCommand('Journal : copier le détail pour le signaler', montrerJournal);
+    GM_registerMenuCommand('Signaler un problème (tout est rassemblé)', montrerSignalement);
+    GM_registerMenuCommand('Journal : copier le détail', montrerJournal);
     GM_registerMenuCommand('Diagnostic : pourquoi pas de bouton ?', function () {
       const d = DIAG || {};
       alert(
@@ -175,6 +234,23 @@
   const CLE = 'passer-opening-v1';
 
   /**
+   * Traces d'exécution.
+   *
+   * Le journal dit ce qui s'est passé ; les traces disent ce que ça a coûté et ce que les
+   * services ont exactement répondu. Les deux ensemble suffisent à comprendre une panne sans
+   * avoir à redemander quoi que ce soit à l'utilisateur.
+   */
+  const TRACES = { debut: Date.now(), appels: [], erreurs: [] };
+  function tracer(nom, debut, resume) {
+    TRACES.appels.push({ nom: nom, ms: Date.now() - debut, resume: String(resume).slice(0, 120) });
+    if (TRACES.appels.length > 40) TRACES.appels.shift();
+  }
+  function tracerErreur(ou, e) {
+    TRACES.erreurs.push(ou + ' : ' + ((e && e.message) || String(e)).slice(0, 140));
+    if (TRACES.erreurs.length > 12) TRACES.erreurs.shift();
+  }
+
+  /**
    * Journal de bord.
    *
    * Le bouton dépend de trop de choses invisibles — analyseur branché ou non, minutages reçus,
@@ -184,11 +260,21 @@
    * La page du lecteur fait l'essentiel du travail mais n'a pas d'interface ; elle envoie donc ses
    * lignes à la page du site, qui les garde toutes.
    */
+  /** « 23:41:07 » : une horloge commune aux deux pages, pour remettre les lignes en ordre. */
+  function horodate() {
+    const d = new Date();
+    const p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
   const JOURNAL = {
     lignes: [],
     ligne: function (texte) {
       const ou = (window.top === window.self) ? 'site' : 'lecteur';
-      const l = '[' + ou + '] ' + texte;
+      // L'heure est posée à l'écriture, pas à la réception : les lignes du lecteur arrivent par
+      // message et pourraient se présenter dans un autre ordre. Sans elle, « reconnu puis plus
+      // reconnu » reste illisible — on ne sait pas ce qui s'est passé entre les deux.
+      const l = '[' + horodate() + '] [' + ou + '] ' + texte;
       if (ou === 'lecteur') {
         try { window.top.postMessage({ cle: CLE, type: 'journal', ligne: l }, '*'); } catch (e) { /* ignore */ }
       } else {
@@ -504,10 +590,16 @@
       if (!vus[v.toLowerCase()]) { vus[v.toLowerCase()] = 1; propres.push(v); }
     }
     essais = propres;
+    // On garde la liste exacte des titres essayés : quand aucun ne marche, c'est elle qu'il faut
+    // lire pour comprendre sous quelle forme le site écrit son titre.
+    TRACES.titresEssayes = essais.slice();
     for (let i = 0; i < essais.length; i++) {
       if (i) await new Promise(function (r) { setTimeout(r, 320); }); // AniList limite le rythme
-      const r = await anilist(q, { s: essais[i] });
+      const t0 = Date.now();
+      let r = null;
+      try { r = await anilist(q, { s: essais[i] }); } catch (e) { tracerErreur('AniList « ' + essais[i] + ' »', e); }
       const m = r && r.data && r.data.Media;
+      tracer('AniList « ' + essais[i] + ' »', t0, m && m.id ? 'MAL ' + (m.idMal || '?') : 'introuvable');
       if (m && m.id) {
         const out = { id: m.id, mal: m.idMal || 0 };
         ecrire(cle, out);
@@ -571,6 +663,7 @@
    * remonter la chaîne des préquelles — qui ramènerait à la première saison.
    */
   async function parAnnee(titre, annee) {
+    const t0 = Date.now();
     const cle = 'an:' + titre.toLowerCase() + '#' + annee;
     const cache = lire(cle);
     if (cache !== null && cache !== undefined) return cache;
@@ -582,7 +675,8 @@
         const m = liste[i], f = m.format, a = m.startDate && m.startDate.year;
         if (a === annee && (f === 'TV' || f === 'TV_SHORT' || f === 'ONA')) { mal = m.idMal || 0; break; }
       }
-    } catch (e) { mal = 0; }
+    } catch (e) { mal = 0; tracerErreur('AniList par année « ' + titre + ' »', e); }
+    tracer('AniList « ' + titre + ' » année ' + annee, t0, mal ? 'MAL ' + mal : 'aucune correspondance');
     ecrire(cle, mal);
     return mal;
   }
@@ -624,9 +718,14 @@
     const cle = 'skip:' + mal + '/' + episode;
     const cache = lire(cle);
     if (cache) return cache;
-    const r = await json('https://api.aniskip.com/v2/skip-times/' + mal + '/' + episode +
-      '?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&episodeLength=0');
+    const adresse = 'https://api.aniskip.com/v2/skip-times/' + mal + '/' + episode +
+      '?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&episodeLength=0';
+    const t0 = Date.now();
+    let r = null;
+    try { r = await json(adresse); } catch (e) { tracerErreur('AniSkip ' + mal + '/' + episode, e); }
     const res = (r && r.results) || [];
+    tracer('AniSkip ' + mal + ' ép.' + episode, t0,
+      res.length ? res.map(function (x) { return x.skipType; }).join(',') : ((r && r.message) || 'aucun résultat'));
     const out = [];
     for (let i = 0; i < res.length; i++) {
       const iv = res[i].interval || {};
@@ -649,10 +748,17 @@
     let ranges = [];
     let identite = '';   // « titre|saison », pour que le lecteur sache de quel anime il s'agit
     let numero = 0;
+    // Vie de la page. Un site moderne change d'épisode sans recharger : si la page est reconnue
+    // puis cesse de l'être, ces compteurs le disent d'un coup d'œil, là où le journal seul
+    // obligerait à relire quatre cents lignes.
+    let adresseVue = location.href;
+    let navigations = 0, reconnaissances = 0, pertes = 0, reconnuUneFois = false;
+    let motLecteur = 0;   // dernière fois que la page du lecteur a donné des nouvelles
 
     /** Ce que la page a compris, pour le diagnostic affiché à l'utilisateur. */
     let dernierDiag = { site: site.nom, etat: 'lecture de la page…' };
     let etatSon = '';   // rapporté par la page du lecteur, qui seule entend la vidéo
+    let detailLecteur = null;
     let dernierEtatNote = '';
     function noter(diag) {
       dernierDiag = diag || dernierDiag;
@@ -687,18 +793,25 @@
       const d = e.data;
       if (!d || d.cle !== CLE) return;
       if (d.type === 'journal') { JOURNAL.recevoir(d.ligne); return; }
-      if (d.type === 'son') { etatSon = d.etat; noter(null); return; }
+      if (d.type === 'son') { etatSon = d.etat; detailLecteur = d.detail || null; motLecteur = Date.now(); noter(null); return; }
       if (d.type !== 'bonjour') return;
       try { e.source.postMessage({ cle: CLE, type: 'minutages', ranges: ranges, auto: !!reglages.auto(), anime: identite, episode: numero }, '*'); } catch (err) { /* ignore */ }
     });
 
     let occupe = false;
     async function tic() {
+      if (location.href !== adresseVue) {
+        adresseVue = location.href;
+        navigations++;
+        JOURNAL.ligne("la page a changé d'adresse sans recharger (" + navigations + ') : ' + adressePage());
+      }
       let infos = null;
       try { infos = site.infos(); } catch (e) { infos = null; }
       if (!infos || !infos.titre || !infos.episode) {
+        if (reconnuUneFois) { pertes++; reconnuUneFois = false; }
         noter({ site: site.nom, etat: "cette page n'a pas été reconnue comme une page d'épisode" });
       } else {
+        if (!reconnuUneFois) { reconnuUneFois = true; reconnaissances++; }
         identite = (infos.titre + '|' + infos.saison).toLowerCase();
         numero = infos.episode;
         const signature = infos.titre + '|' + infos.saison + '|' + infos.episode;
@@ -727,6 +840,155 @@
       // par exemple après un clic sur « Regarder l'épisode ».
       diffuser();
     }
+
+    /**
+     * Rapport de signalement.
+     *
+     * Rassemble, en un seul texte copiable, tout ce qu'il faut pour comprendre un problème sans
+     * avoir à redemander quoi que ce soit : ce que la page donne à lire, ce que le script en a
+     * tiré, ce que les deux services ont répondu, l'état du lecteur et de son, et le journal.
+     * Les sources brutes comptent autant que le résultat : la plupart des pannes vues jusqu'ici
+     * venaient d'un titre écrit autrement que prévu.
+     */
+    /** « mercredi 18 novembre 2026 à 23:20:41 », plus l'écart avec l'heure universelle. */
+    function dateLisible() {
+      const d = new Date();
+      let texte;
+      try {
+        texte = d.toLocaleString('fr-FR', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+        });
+      } catch (e) { texte = d.toString(); }
+      const ecart = -d.getTimezoneOffset() / 60;
+      return texte + ' (UTC' + (ecart >= 0 ? '+' : '') + ecart + ')';
+    }
+
+    /**
+     * L'adresse de l'épisode, telle qu'elle sert à reproduire le problème.
+     *
+     * Elle garde ses paramètres : sur certains sites le numéro d'épisode ne vit que dans
+     * « ?ep=1 », et une adresse tronquée ne mène nulle part. Mais un paramètre peut aussi porter
+     * un jeton de lecture, qui n'a rien à faire dans un signalement : ceux-là sont masqués, de
+     * même que toute valeur anormalement longue.
+     */
+    function adressePage() {
+      const SECRET = /token|auth|key|sig|session|password|passe|jwt|secret|mail|user|login|id$/i;
+      try {
+        const u = new URL(location.href);
+        const bouts = [];
+        u.searchParams.forEach(function (v, k) {
+          bouts.push(k + '=' + (SECRET.test(k) || v.length > 40 ? '(masqué)' : v));
+        });
+        const ancre = (u.hash && u.hash.length < 60 && !SECRET.test(u.hash)) ? u.hash : '';
+        return u.origin + u.pathname + (bouts.length ? '?' + bouts.join('&') : '') + ancre;
+      } catch (e) { return location.href.split('?')[0]; }
+    }
+
+    function rapport() {
+      const brut = function (sel, attr) {
+        try {
+          const e = document.querySelector(sel);
+          if (!e) return '(absent)';
+          const v = attr ? e.getAttribute(attr) : e.textContent;
+          return (v || '').replace(/\s+/g, ' ').trim().slice(0, 160) || '(vide)';
+        } catch (e) { return '(illisible)'; }
+      };
+      // Les domaines des cadres, sans la partie « ? » : un jeton de lecture n'a rien à faire
+      // dans un signalement, et le domaine suffit à savoir qui sert la vidéo.
+      const cadres = function () {
+        try {
+          const f = document.querySelectorAll('iframe');
+          const vus = [];
+          for (let i = 0; i < f.length; i++) {
+            try {
+              const u = new URL(f[i].src, location.href);
+              const court = u.hostname + u.pathname.slice(0, 40);
+              if (u.hostname && vus.indexOf(court) < 0) vus.push(court);
+            } catch (e) { /* src vide ou relatif */ }
+          }
+          return vus.length ? vus.join(', ') : 'aucun';
+        } catch (e) { return '(illisible)'; }
+      };
+      const listes = [];
+      try {
+        const sels = document.querySelectorAll('select');
+        for (let i = 0; i < sels.length && i < 4; i++) {
+          const x = sels[i];
+          listes.push('  ' + (x.id || x.name || 'liste ' + (i + 1)) + ' : ' + x.options.length +
+            ' entrées, choisi « ' + ((x.selectedOptions[0] || {}).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) + ' »');
+        }
+      } catch (e) { /* page exotique */ }
+
+      const d = dernierDiag || {};
+      const L = detailLecteur || {};
+      const lignes = [
+        '--- Passer l\'opening : signalement ---',
+        'version : ' + (reglages.version || '?') + '   (' + (reglages.canal || 'inconnu') + ')',
+        'date : ' + dateLisible() + '   (' + new Date().toISOString() + ')',
+        'navigateur : ' + navigator.userAgent.slice(0, 120),
+        '',
+        'PAGE',
+        '  adresse : ' + adressePage(),
+        '  adaptateur : ' + (d.site || site.nom),
+        '  titre de l\'onglet : ' + document.title.replace(/\s+/g, ' ').trim().slice(0, 160),
+        '  og:title : ' + brut('meta[property="og:title"]', 'content'),
+        '  premier titre (h1) : ' + brut('h1'),
+        '  #titreOeuvre : ' + brut('#titreOeuvre'),
+        '  #titreAlter : ' + brut('#titreAlter'),
+        listes.length ? '  listes déroulantes :\n' + listes.join('\n') : '  listes déroulantes : aucune',
+        '  vie de la page : reconnue ' + reconnaissances + ' fois, perdue ' + pertes + ' fois, ' +
+          navigations + " changement(s) d'adresse sans rechargement",
+        '',
+        'CE QUE LE SCRIPT EN A TIRÉ',
+        '  titre : ' + (d.titre || '—'),
+        '  saison : ' + (d.saison || '—') + '   épisode : ' + (d.episode || '—'),
+        '  fiche MyAnimeList : ' + (d.mal || '—'),
+        '  résultat : ' + (d.etat || '—'),
+        '',
+        'LECTEUR',
+        '  domaine : ' + (L.hote || '—') + (L.hote && L.hote !== location.hostname ? ' (dans une iframe)' : ''),
+        '  durée : ' + (L.duree != null ? L.duree + ' s' : '—') + '   position : ' + (L.position != null ? L.position + ' s' : '—') +
+          (L.enPause ? '   (en pause)' : ''),
+        '  son : ' + (etatSon || '—') + '   volume : ' + (L.volume != null ? L.volume + ' %' : '—'),
+        '  repères du lecteur : ' + (L.repères || 'aucun'),
+        '  intervalles utilisés : ' + (L.intervalles || 'aucun'),
+        '  saut automatique : ' + (L.sautAuto ? 'activé' : 'désactivé'),
+        '  nouvelles du lecteur : ' + (motLecteur
+          ? 'il y a ' + Math.round((Date.now() - motLecteur) / 1000) + ' s'
+          : 'AUCUNE — la partie lecteur ne répond pas'),
+        '  balises vidéo sur la page du lecteur : ' + (L.videos != null ? L.videos : '—') +
+          '   source : ' + (L.source || '—'),
+        '  provenance des repères : ' + (L.provenance || 'aucun repère du lecteur') +
+          (L.exact ? "   (ils l'emportent sur AniSkip)" : ''),
+        '  calage sonore : ' + (L.calage || '—'),
+        '  dernier saut : ' + (L.dernierSaut || 'aucun'),
+        '  bouton : ' + (L.bouton || '—'),
+        '',
+        'RECHERCHES',
+        TRACES.titresEssayes && TRACES.titresEssayes.length
+          ? '  titres essayés sur AniList :\n' + TRACES.titresEssayes.map(function (t) { return '    « ' + t + ' »'; }).join('\n')
+          : '  titres essayés sur AniList : (aucun — le titre n\'a pas été lu)',
+        TRACES.appels.length
+          ? '  appels :\n' + TRACES.appels.map(function (a) { return '    ' + a.nom + ' → ' + a.resume + '  (' + a.ms + ' ms)'; }).join('\n')
+          : '  appels : aucun',
+        TRACES.erreurs.length ? '  erreurs :\n' + TRACES.erreurs.map(function (e) { return '    ' + e; }).join('\n') : '  erreurs : aucune',
+        '',
+        'CONTEXTE',
+        '  cadres de la page : ' + cadres(),
+        '  fenêtre : ' + window.innerWidth + '×' + window.innerHeight +
+          '   écran : ' + (screen.width || '?') + '×' + (screen.height || '?') +
+          '   zoom : ' + Math.round((window.devicePixelRatio || 1) * 100) + ' %',
+        '  langue : ' + (navigator.language || '?') + '   plein écran : ' + (document.fullscreenElement ? 'oui' : 'non'),
+        '  page ouverte depuis : ' + Math.round((Date.now() - TRACES.debut) / 1000) + ' s',
+        '',
+        'JOURNAL (' + JOURNAL.lignes.length + ' lignes)',
+        JOURNAL.lignes.length ? JOURNAL.lignes.join('\n') : '  (vide)',
+      ];
+      return lignes.join('\n');
+    }
+
+    if (typeof reglages.exposerRapport === 'function') reglages.exposerRapport(rapport);
 
     tic();
     setInterval(tic, 1500);
@@ -1015,6 +1277,7 @@
 
   function cotéLecteur() {
     let ranges = [], auto = false, sautes = {}, bouton = null, video = null;
+    let provenanceReperes = '', dernierSaut = '';
     let autoAnnonce = false;
     let genericSon = null;   // générique reconnu au son, quand AniSkip ne sait rien
     let jsonRanges = '';
@@ -1042,6 +1305,7 @@
       out.sort(function (a, b) { return a.debut - b.debut; });
       chapitresRanges = out;
       prioriteChapitres = true;
+      provenanceReperes = provenance;
       jsonRanges = JSON.stringify(out);
       ranges = out;
       sautes = {};
@@ -1254,6 +1518,10 @@
     function arrivee(r) { return Math.max(r.debut + 1, r.fin - MARGE); }
 
     function sauter(fin) {
+      // Gardé pour le signalement : un saut qui n'atterrit pas où il faut est invisible dans
+      // l'état final du lecteur, mais évident dès qu'on voit d'où il partait.
+      dernierSaut = 'de ' + (video && isFinite(video.currentTime) ? Math.round(video.currentTime) : '?') +
+        ' s à ' + Math.round(fin) + ' s, à ' + horodate();
       try {
         if (typeof window.jwplayer === 'function' && window.jwplayer().seek) { window.jwplayer().seek(fin); return; }
       } catch (e) { /* le lecteur n'est pas JW Player */ }
@@ -1372,9 +1640,48 @@
           : (!Son.analyseur ? "non analysable (son déjà capté par le lecteur, ou d'un autre domaine)"
             : (Son.energies.length ? 'analysable, ' + Math.round(Son.energies.length * Son.PAS) + ' s relevées'
               : 'analysable, rien de relevé (son coupé, volume à zéro ou lecture en pause)'));
-        if (e !== dernierEtatSon) {
-          dernierEtatSon = e;
-          window.top.postMessage({ cle: CLE, type: 'son', etat: e }, '*');
+        // Avec l'état du son part tout ce que seule la page du lecteur connaît : c'est ce qui
+        // permet au signalement d'être complet sans que l'utilisateur ait à fouiller.
+        const detail = {
+          hote: location.hostname,
+          duree: video && isFinite(video.duration) ? Math.round(video.duration) : null,
+          position: video ? Math.round(video.currentTime) : null,
+          enPause: video ? !!video.paused : null,
+          volume: video ? Math.round(video.volume * 100) : null,
+          repères: chapitresRanges ? chapitresRanges.map(function (r) {
+            return r.type + ' ' + Math.round(r.debut) + '→' + Math.round(r.fin);
+          }).join(', ') : null,
+          intervalles: ranges.length ? ranges.map(function (r) {
+            return r.type + ' ' + Math.round(r.debut) + '→' + Math.round(r.fin) + (r.sur ? ' (exact)' : '');
+          }).join(', ') : null,
+          sautAuto: auto,
+          videos: document.querySelectorAll('video').length,
+          source: (function () {
+            try {
+              if (!video) return null;
+              const src = video.currentSrc || video.src || '';
+              if (/^blob:/.test(src)) return 'blob: (flux assemblé en JavaScript)';
+              if (!src) return 'aucune (posée sur un <source> ou par MSE)';
+              return new URL(src, location.href).hostname;
+            } catch (e) { return '(illisible)'; }
+          })(),
+          provenance: provenanceReperes || null,
+          exact: prioriteChapitres,
+          calage: (function () {
+            try {
+              if (!Son.reference) return 'pas de référence sonore figée';
+              const s = Son.seuils(Son.reference);
+              return 'référence ' + Son.reference.toFixed(1) + ', seuils ' + s.strict.toFixed(1) +
+                ' / ' + s.souple.toFixed(1) + ', ' + Son.energies.length + ' relevés';
+            } catch (e) { return '(illisible)'; }
+          })(),
+          dernierSaut: dernierSaut || null,
+          bouton: !bouton ? 'jamais créé' : (bouton.style.display === 'flex' ? 'affiché' : 'caché'),
+        };
+        const signature = e + '|' + JSON.stringify(detail);
+        if (signature !== dernierEtatSon) {
+          dernierEtatSon = signature;
+          window.top.postMessage({ cle: CLE, type: 'son', etat: e, detail: detail }, '*');
         }
       } catch (err) { /* page du haut inaccessible : tant pis pour le diagnostic */ }
     }, 700);
@@ -1385,5 +1692,5 @@
   cotéLecteur();
 });
 
-  NOYAU({ json: json, auto: auto, diag: diag, journal: journal });
+  NOYAU({ json: json, auto: auto, diag: diag, journal: journal, exposerRapport: exposerRapport, version: '3.14', canal: 'script Tampermonkey' });
 })();

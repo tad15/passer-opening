@@ -6,8 +6,22 @@
 <style>
   body { width: 290px; margin: 0; padding: 14px 16px; font: 14px/1.45 system-ui, sans-serif; background: #15161c; color: #ececf0; }
   h1 { font-size: 15px; margin: 0 0 10px; }
-  label { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
-  input { margin-top: 3px; }
+  /* Interrupteur du saut automatique : une pastille comme celle du bouton posé sur le lecteur,
+     pour que le réglage et son effet se ressemblent. */
+  #auto { display: flex; align-items: center; gap: 9px; width: 100%; border: 1px solid #2c2c36;
+          background: #1c1d25; color: #c9c7d4; border-radius: 999px; cursor: pointer;
+          padding: 9px 14px; font: 600 13px/1.2 system-ui, sans-serif; text-align: left;
+          transition: background .15s, color .15s, border-color .15s; }
+  #auto:hover { border-color: #3a3a46; }
+  #auto .voyant { flex: 0 0 auto; width: 34px; height: 20px; border-radius: 999px;
+                  background: #3a3a46; position: relative; transition: background .15s; }
+  #auto .voyant::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+                         border-radius: 50%; background: #9a9aa8; transition: transform .15s, background .15s; }
+  #auto[aria-pressed="true"] { background: linear-gradient(135deg, #FF5F8A, #993953);
+                               color: #fff; border-color: transparent; }
+  #auto[aria-pressed="true"] .voyant { background: rgba(255,255,255,.35); }
+  #auto[aria-pressed="true"] .voyant::after { transform: translateX(14px); background: #fff; }
+  #auto:focus-visible { outline: 2px solid #FF5F8A; outline-offset: 2px; }
   h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa8; margin: 16px 0 6px; }
   dl { margin: 0; font-size: 12.5px; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
   dt { color: #9a9aa8; }
@@ -17,14 +31,23 @@
   #journal { max-height: 240px; overflow: auto; background: #0e0e12; border: 1px solid #2c2c36;
              border-radius: 8px; padding: 8px; font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace;
              color: #d7d7e0; white-space: pre-wrap; margin: 8px 0; }
-  #copier { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer;
+  .aide { font-size: 12px; color: #918fa0; margin: 8px 0 0; }
+  #rapport { max-height: 240px; overflow: auto; background: #0e0e12; border: 1px solid #2c2c36;
+             border-radius: 8px; padding: 8px; font: 11px/1.45 ui-monospace, Menlo, Consolas, monospace;
+             color: #d7d7e0; white-space: pre-wrap; margin: 8px 0; }
+  #fichier, #mail { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer;
+            color: #eceaf3; background: #2c2c36; font: 600 13px/1 system-ui, sans-serif; margin-left: 6px; margin-top: 6px; }
+  #copier, #copierRapport { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer;
             color: #fff; font: 600 13px/1 system-ui, sans-serif;
             background: linear-gradient(135deg, #FF5F8A, #993953); }
 </style>
 </head>
 <body>
 <h1>Passer l'opening</h1>
-<label><input type="checkbox" id="auto"> <span>Sauter l'opening automatiquement, sans afficher le bouton</span></label>
+<button id="auto" type="button" aria-pressed="false">
+  <span class="voyant" aria-hidden="true"></span>
+  <span id="autoTexte">Saut automatique désactivé</span>
+</button>
 <h2>Dernière page analysée</h2>
 <dl>
   <dt>Site</dt><dd id="site">—</dd>
@@ -39,6 +62,15 @@
   <summary>Journal détaillé</summary>
   <pre id="journal">—</pre>
   <button id="copier">Copier le journal</button>
+</details>
+<details open>
+  <summary>Signaler un problème</summary>
+  <p class="aide">Tout ce qui sert à comprendre la panne est rassemblé ici : ce que la page affiche,
+  ce que le script en a tiré, l'état du lecteur et le journal.</p>
+  <pre id="rapport">—</pre>
+  <button id="copierRapport">Copier</button>
+  <button id="fichier">Télécharger le fichier</button>
+  <button id="mail">Préparer le mail</button>
 </details>
 <script src="reglages.js"></script>
 </body>
