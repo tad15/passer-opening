@@ -82,4 +82,15 @@ Les seuils sont **relatifs** à ce niveau figé, jamais absolus : d'un lecteur �
 peut tourner autour de 4 ou de 40, et un seuil en dur rendait la détection impossible sur les
 mixages discrets.
 
+## Le saut automatique
+
+Il se règle depuis la fenêtre de l'extension, ou depuis le menu Tampermonkey. Le réglage vaut pour
+tous les sites : dans le script Tampermonkey il est rangé par `GM_setValue`, et non dans le
+stockage local de la page, qui est cloisonné par domaine — l'activer sur un site ne l'activait
+alors nulle part ailleurs.
+
+Un épisode déjà en cours garde le minutage reçu au départ : recharger la page applique le
+changement tout de suite. Le journal écrit `saut automatique : activé` ou `désactivé` dès que la
+page du lecteur reçoit le réglage, ce qui permet de voir d'un coup d'œil s'il est bien arrivé.
+
 Contact : animelover.app@gmail.com

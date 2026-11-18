@@ -858,6 +858,7 @@
 
   function cotéLecteur() {
     let ranges = [], auto = false, sautes = {}, bouton = null, video = null;
+    let autoAnnonce = false;
     let genericSon = null;   // générique reconnu au son, quand AniSkip ne sait rien
     let jsonRanges = '';
     let prioriteChapitres = false;   // des repères exacts l'emportent sur AniSkip
@@ -956,7 +957,12 @@
           ? ranges.map(function (r) { return r.type + ' ' + Math.round(r.debut) + '→' + Math.round(r.fin); }).join(', ')
           : 'aucun (AniSkip ne connaît pas cet épisode)'));
       }
-      auto = !!d.auto;
+      // Le réglage est relu à chaque diffusion ; on n'en parle au journal que s'il change,
+      // sinon la ligne reviendrait toutes les secondes et demie.
+      if (!!d.auto !== auto) {
+        auto = !!d.auto;
+        JOURNAL.ligne('saut automatique : ' + (auto ? 'activé' : 'désactivé'));
+      }
 
       // changement d'épisode : on range le relevé du précédent et on repart à zéro
       const cle = d.anime || '', ep = d.episode || 0;

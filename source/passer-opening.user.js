@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Passer l'opening — Anime-Sama, FRAnime, VoirAnime
 // @namespace    https://github.com/tad15
-// @version      3.7
+// @version      3.8
 // @description  Bouton « Passer l'opening » et « Passer l'ending » sur les lecteurs des sites d'animes, avec les minutages d'AniSkip.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      graphql.anilist.co
 // @connect      api.aniskip.com
 // @run-at       document-idle
@@ -15,13 +17,32 @@
   'use strict';
 
   const MEM = 'passer-opening:';
-  function auto() { try { return localStorage.getItem(MEM + 'auto') === 'true'; } catch (e) { return false; } }
+  /**
+   * Le saut automatique se range dans le stockage de Tampermonkey, pas dans celui de la page.
+   *
+   * localStorage est cloisonné par domaine : activer le réglage sur anime-sama ne l'activait pas
+   * sur voiranime ni ailleurs, alors que le menu laisse croire à un réglage unique. GM_getValue
+   * est partagé par tous les sites. L'ancien stockage sert encore de repli, et de reprise pour
+   * ceux qui avaient déjà activé le réglage.
+   */
+  function auto() {
+    try {
+      if (typeof GM_getValue === 'function') return GM_getValue('auto', false) === true;
+    } catch (e) { /* repli ci-dessous */ }
+    try { return localStorage.getItem(MEM + 'auto') === 'true'; } catch (e) { return false; }
+  }
+
+  function poserAuto(valeur) {
+    try { if (typeof GM_setValue === 'function') GM_setValue('auto', !!valeur); } catch (e) { /* repli */ }
+    try { localStorage.setItem(MEM + 'auto', String(!!valeur)); } catch (e) { /* page sans stockage */ }
+  }
 
   if (typeof GM_registerMenuCommand === 'function' && window.top === window.self) {
     GM_registerMenuCommand('Saut automatique : ' + (auto() ? 'oui' : 'non') + ' — cliquer pour changer', function () {
       const neuf = !auto();
-      try { localStorage.setItem(MEM + 'auto', String(neuf)); } catch (e) {}
-      alert('Saut automatique : ' + (neuf ? 'activé' : 'désactivé') + '.');
+      poserAuto(neuf);
+      alert('Saut automatique : ' + (neuf ? 'activé' : 'désactivé') + '.\n\n' +
+            'Ce réglage vaut maintenant pour tous les sites. Recharge la page en cours pour qu\'il s\'applique tout de suite.');
     });
   }
 
@@ -106,7 +127,8 @@
         'Saison : ' + (d.saison === undefined ? '—' : d.saison) + '\n' +
         'Épisode : ' + (d.episode === undefined ? '—' : d.episode) + '\n' +
         'Fiche MyAnimeList : ' + (d.mal || '—') + '\n' +
-        'Son du lecteur : ' + (d.son || '—') + '\n\n' +
+        'Son du lecteur : ' + (d.son || '—') + '\n' +
+        'Saut automatique : ' + (auto() ? 'activé' : 'désactivé') + '\n\n' +
         'Résultat : ' + (d.etat || '—')
       );
     });
@@ -989,6 +1011,7 @@
 
   function cotéLecteur() {
     let ranges = [], auto = false, sautes = {}, bouton = null, video = null;
+    let autoAnnonce = false;
     let genericSon = null;   // générique reconnu au son, quand AniSkip ne sait rien
     let jsonRanges = '';
     let prioriteChapitres = false;   // des repères exacts l'emportent sur AniSkip
@@ -1087,7 +1110,12 @@
           ? ranges.map(function (r) { return r.type + ' ' + Math.round(r.debut) + '→' + Math.round(r.fin); }).join(', ')
           : 'aucun (AniSkip ne connaît pas cet épisode)'));
       }
-      auto = !!d.auto;
+      // Le réglage est relu à chaque diffusion ; on n'en parle au journal que s'il change,
+      // sinon la ligne reviendrait toutes les secondes et demie.
+      if (!!d.auto !== auto) {
+        auto = !!d.auto;
+        JOURNAL.ligne('saut automatique : ' + (auto ? 'activé' : 'désactivé'));
+      }
 
       // changement d'épisode : on range le relevé du précédent et on repart à zéro
       const cle = d.anime || '', ep = d.episode || 0;

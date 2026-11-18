@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Passer l'opening",
-  "version": "3.7",
+  "version": "3.8",
   "description": "Bouton « Passer l'opening » et « Passer l'ending » sur les lecteurs des sites d'animes, avec les minutages d'AniSkip.",
   "icons": {
     "16": "icones/icone-16.png",
