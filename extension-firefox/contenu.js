@@ -2,12 +2,17 @@
 (function () {
   'use strict';
 
-  let AUTO = false;
+  // Les trois réglages, relus en continu : l'utilisateur peut les changer pendant la lecture.
+  const REGLAGES = { auto: false, agrandir: false, marge: 1500 };
   try {
-    chrome.storage.local.get({ auto: false }, function (v) { AUTO = !!v.auto; });
-    chrome.storage.onChanged.addListener(function (ch) { if (ch.auto) AUTO = !!ch.auto.newValue; });
+    chrome.storage.local.get(Object.assign({}, REGLAGES), function (v) { Object.assign(REGLAGES, v); });
+    chrome.storage.onChanged.addListener(function (ch) {
+      Object.keys(REGLAGES).forEach(function (k) { if (ch[k]) REGLAGES[k] = ch[k].newValue; });
+    });
   } catch (e) { /* page sans accès au stockage */ }
-  function auto() { return AUTO; }
+  function auto() { return !!REGLAGES.auto; }
+  function agrandir() { return !!REGLAGES.agrandir; }
+  function marge() { return Number(REGLAGES.marge); }
 
   /**
    * État de CETTE page, gardé ici et nulle part ailleurs.
@@ -641,6 +646,12 @@
       const d = e.data;
       if (!d || d.cle !== CLE) return;
       if (reveil) reveil();   // une iframe parle : il y a donc un lecteur dans cette page
+      if (d.type === 'agrandir') {
+        // Venu d'une iframe : on agrandit l'iframe. Venu de cette page même (AniZone sert sa
+        // vidéo lui-même), il n'y a pas d'iframe : c'est la balise vidéo qu'on agrandit.
+        basculerAgrandissement(cadreDe(e.source) || (e.source === window ? document.querySelector('video') : null));
+        return;
+      }
       if (d.type === 'journal') { JOURNAL.recevoir(d.ligne); return; }
       if (d.type === 'son') { etatSon = d.etat; detailLecteur = d.detail || null; motLecteur = Date.now(); noter(null); return; }
       if (d.type !== 'bonjour') return;
@@ -648,6 +659,50 @@
     });
 
     let reveil = null;
+
+    /**
+     * Agrandir la vidéo à toute la fenêtre, sans passer en plein écran.
+     *
+     * Seule la page du site peut le faire : la vidéo vit presque toujours dans une iframe, et une
+     * iframe ne peut pas se redimensionner elle-même. Elle demande donc, et on exécute ici.
+     *
+     * On retrouve l'iframe par la fenêtre qui a parlé — « e.source » la désigne sans ambiguïté —
+     * plutôt qu'en devinant laquelle des iframes de la page est le lecteur.
+     */
+    let agrandi = null;
+
+    function cadreDe(fenetre) {
+      const cadres = document.querySelectorAll('iframe');
+      for (let i = 0; i < cadres.length; i++) {
+        try { if (cadres[i].contentWindow === fenetre) return cadres[i]; } catch (e) { /* cadre fermé */ }
+      }
+      return null;
+    }
+
+    function basculerAgrandissement(el) {
+      if (agrandi) return rendreLaPage();
+      if (!el) return;
+      agrandi = { el: el, style: el.getAttribute('style') || '', corps: document.body.style.overflow };
+      el.style.cssText += ';position:fixed;inset:0;width:100vw;height:100vh;max-width:none;' +
+                          'max-height:none;margin:0;padding:0;border:0;z-index:2147483646;background:#000;';
+      document.body.style.overflow = 'hidden';
+      JOURNAL.ligne('vidéo agrandie à toute la fenêtre');
+    }
+
+    function rendreLaPage() {
+      if (!agrandi) return;
+      if (agrandi.style) agrandi.el.setAttribute('style', agrandi.style);
+      else agrandi.el.removeAttribute('style');
+      document.body.style.overflow = agrandi.corps;
+      agrandi = null;
+      JOURNAL.ligne('vidéo rendue à sa taille');
+    }
+
+    // Échap rend la page, comme le plein écran : c'est le geste que tout le monde connaît.
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && agrandi) rendreLaPage();
+    }, true);
+
     let occupe = false;
     async function tic() {
       if (location.href !== adresseVue) {
@@ -849,8 +904,12 @@
      * sur un site connu on démarre tout de suite, et partout ailleurs on attend qu'une vidéo se
      * montre, ici ou dans une iframe qui se signale. Une page sans vidéo ne coûte donc rien.
      */
+    // Sur Crunchyroll, la page du site ne cherche rien : le site connaît ses propres repères, et
+    // interroger AniList pour un titre dont on n'a pas besoin enverrait ce titre dehors pour rien.
+    // Elle reste là pour le reste : agrandir le lecteur à la demande, et tenir le journal.
+    const crunchy = /(^|\.)crunchyroll\.com$/.test(location.hostname);
     const connu = site.nom !== 'générique';
-    let enMarche = false;
+    let enMarche = crunchy;
     function demarrer() {
       if (enMarche) return;
       enMarche = true;
@@ -861,9 +920,14 @@
     const filet = setInterval(function () {
       if (document.querySelector('video')) demarrer();
     }, 5000);
-    reveil = demarrer;   // un « bonjour » d'un lecteur réveille aussi la page du site
-    if (connu || document.querySelector('video')) demarrer();
-    else noter({ site: site.nom, etat: 'aucune vidéo sur cette page' });
+    if (crunchy) {
+      clearInterval(filet);
+      noter({ site: 'Crunchyroll', etat: 'le site donne ses propres repères ; rien à demander à AniSkip' });
+    } else {
+      reveil = demarrer;   // un « bonjour » d'un lecteur réveille aussi la page du site
+      if (connu || document.querySelector('video')) demarrer();
+      else noter({ site: site.nom, etat: 'aucune vidéo sur cette page' });
+    }
   }
 
   // ======================================= RECONNAISSANCE DU GÉNÉRIQUE AU SON
@@ -1340,6 +1404,15 @@
      * identique à avant ; sur un site qui lui colle une liste d'épisodes à droite, le bouton
      * reste sur la vidéo au lieu d'aller se poser sur la liste.
      */
+    // Le réglage est relu à chaque tour : l'utilisateur peut le changer pendant la lecture.
+    let agrandissementDemande = false;
+    function peutEtreAgrandir() {
+      const veut = (typeof reglages.agrandir === 'function') && reglages.agrandir();
+      if (!veut || agrandissementDemande || !video) return;
+      agrandissementDemande = true;
+      try { window.top.postMessage({ cle: CLE, type: 'agrandir' }, '*'); } catch (e) { /* page du haut fermée */ }
+    }
+
     const MARGE_DROITE = 22, MARGE_BAS = 112;
     function ancrer() {
       if (!bouton) return;
@@ -1419,8 +1492,21 @@
      * dialogue. On se pose donc un peu avant. Une note de musique de trop se supporte ; une
      * réplique perdue oblige à revenir en arrière.
      */
-    const MARGE = 1.5;
-    function arrivee(r) { return Math.max(r.debut + 1, r.fin - MARGE); }
+    /**
+     * Où l'on atterrit : un peu avant la fin annoncée, jamais pile dessus.
+     *
+     * Les minutages publiés sont généreux — ils englobent souvent la première image d'après — et
+     * tomber exactement sur la fin coupe le début d'une réplique. La marge est réglable depuis la
+     * fenêtre de l'extension, en millisecondes ; à zéro, on atterrit sur la fin annoncée.
+     *
+     * Elle ne s'applique pas sur Crunchyroll : là-bas c'est leur propre bouton qui décide, et il
+     * connaît la fin exacte de sa copie de l'épisode.
+     */
+    function marge() {
+      const ms = (typeof reglages.marge === 'function') ? reglages.marge() : 1500;
+      return Math.max(0, Math.min(5000, ms || 0)) / 1000;
+    }
+    function arrivee(r) { return Math.max(r.debut + 1, r.fin - marge()); }
 
     function sauter(fin) {
       // Gardé pour le signalement : un saut qui n'atterrit pas où il faut est invisible dans
@@ -1536,6 +1622,7 @@
         v.addEventListener('ended', function () { Son.ranger(); });
       }
       chapitresDuLecteur();
+      peutEtreAgrandir();
       surveiller();
 
       // Un mot sur l'état du son, pour le diagnostic affiché côté site : c'est la seule façon de
@@ -1626,7 +1713,15 @@
       return null;
     }
 
+    let demandeFaite = false;
     setInterval(function () {
+      // Même service qu'ailleurs : si le réglage le dit, on demande à la page du haut d'agrandir
+      // le lecteur. Sur Crunchyroll la vidéo est dans une iframe, donc la demande part d'elle.
+      if (!demandeFaite && document.querySelector('video') &&
+          typeof reglages.agrandir === 'function' && reglages.agrandir()) {
+        demandeFaite = true;
+        try { window.top.postMessage({ cle: CLE, type: 'agrandir' }, '*'); } catch (e) { /* ignore */ }
+      }
       let b = null;
       try { b = bouton(); } catch (e) { b = null; }
       if (!b) { derniere = 0; return; }
@@ -1662,7 +1757,7 @@
   }
 });
 
-  NOYAU({ json: json, auto: auto, diag: diag, journal: journal, exposerRapport: exposerRapport, version: chrome.runtime.getManifest().version,
+  NOYAU({ json: json, auto: auto, agrandir: agrandir, marge: marge, diag: diag, journal: journal, exposerRapport: exposerRapport, version: chrome.runtime.getManifest().version,
     // Chrome définit désormais « browser » lui aussi : seul le schéma de l'adresse de
     // l'extension distingue vraiment les deux navigateurs.
     canal: 'extension ' + (/^moz-extension:/.test(chrome.runtime.getURL('')) ? 'Firefox' : 'Chrome') });

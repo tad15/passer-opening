@@ -8,20 +8,25 @@
   h1 { font-size: 15px; margin: 0 0 10px; }
   /* Interrupteur du saut automatique : une pastille comme celle du bouton posé sur le lecteur,
      pour que le réglage et son effet se ressemblent. */
-  #auto { display: flex; align-items: center; gap: 9px; width: 100%; border: 1px solid #2c2c36;
+  #auto, #grand { display: flex; align-items: center; gap: 9px; width: 100%; border: 1px solid #2c2c36;
           background: #1c1d25; color: #c9c7d4; border-radius: 999px; cursor: pointer;
           padding: 9px 14px; font: 600 13px/1.2 system-ui, sans-serif; text-align: left;
           transition: background .15s, color .15s, border-color .15s; }
-  #auto:hover { border-color: #3a3a46; }
-  #auto .voyant { flex: 0 0 auto; width: 34px; height: 20px; border-radius: 999px;
+  #auto:hover, #grand:hover { border-color: #3a3a46; }
+  #auto .voyant, #grand .voyant { flex: 0 0 auto; width: 34px; height: 20px; border-radius: 999px;
                   background: #3a3a46; position: relative; transition: background .15s; }
-  #auto .voyant::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+  #auto .voyant::after, #grand .voyant::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
                          border-radius: 50%; background: #9a9aa8; transition: transform .15s, background .15s; }
-  #auto[aria-pressed="true"] { background: linear-gradient(135deg, #FF5F8A, #993953);
+  #auto[aria-pressed="true"], #grand[aria-pressed="true"] { background: linear-gradient(135deg, #FF5F8A, #993953);
                                color: #fff; border-color: transparent; }
-  #auto[aria-pressed="true"] .voyant { background: rgba(255,255,255,.35); }
-  #auto[aria-pressed="true"] .voyant::after { transform: translateX(14px); background: #fff; }
-  #auto:focus-visible { outline: 2px solid #FF5F8A; outline-offset: 2px; }
+  #auto[aria-pressed="true"] .voyant, #grand[aria-pressed="true"] .voyant { background: rgba(255,255,255,.35); }
+  #auto[aria-pressed="true"] .voyant::after, #grand[aria-pressed="true"] .voyant::after { transform: translateX(14px); background: #fff; }
+  #auto:focus-visible, #grand:focus-visible { outline: 2px solid #FF5F8A; outline-offset: 2px; }
+  #ligneMarge { display: block; margin-top: 10px; font-size: 12.5px; color: #c9c6d2; }
+  #ligneMarge input { width: 72px; margin: 0 4px; background: #16161c; color: #ece9f2;
+                      border: 1px solid #2c2c36; border-radius: 7px; padding: 4px 6px;
+                      font: inherit; text-align: right; }
+  #ligneMarge em { display: block; margin-top: 4px; font-style: normal; font-size: 11.5px; color: #8a8694; }
   h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa8; margin: 16px 0 6px; }
   dl { margin: 0; font-size: 12.5px; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
   dt { color: #9a9aa8; }
@@ -48,6 +53,16 @@
   <span class="voyant" aria-hidden="true"></span>
   <span id="autoTexte">Saut automatique désactivé</span>
 </button>
+
+<button id="grand" type="button" aria-pressed="false">
+  <span class="voyant" aria-hidden="true"></span>
+  <span id="grandTexte">Agrandir la vidéo : non</span>
+</button>
+
+<label id="ligneMarge">
+  <span>Atterrir <input id="marge" type="number" min="0" max="5000" step="100" value="1500"> ms avant la fin</span>
+  <em>Pour ne pas manger la première réplique. Sans effet sur Crunchyroll, qui saute à sa propre fin.</em>
+</label>
 <h2>Dernière page analysée</h2>
 <dl>
   <dt>Site</dt><dd id="site">—</dd>

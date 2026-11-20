@@ -1,5 +1,7 @@
 const boite = document.getElementById('auto');
 const sectionRapport = document.querySelectorAll('details')[1];
+const grand = document.getElementById('grand');
+const champMarge = document.getElementById('marge');
 let lignes = [], texteRapport = '';
 
 const mettre = function (id, val) {
@@ -19,6 +21,12 @@ function peindreAuto(actif) {
   boite.setAttribute('aria-pressed', actif ? 'true' : 'false');
   const t = document.getElementById('autoTexte');
   if (t) t.textContent = actif ? "Saut automatique activé" : "Saut automatique désactivé";
+}
+
+function peindreGrand(actif) {
+  grand.setAttribute('aria-pressed', actif ? 'true' : 'false');
+  const t = document.getElementById('grandTexte');
+  if (t) t.textContent = actif ? "Agrandir la vidéo : oui" : "Agrandir la vidéo : non";
 }
 
 function afficher(v) {
@@ -63,7 +71,13 @@ function afficher(v) {
 let hoteCourant = '';
 
 function demander() {
-  chrome.storage.local.get({ auto: false }, function (v) { peindreAuto(!!v.auto); });
+  chrome.storage.local.get({ auto: false, agrandir: false, marge: 1500 }, function (v) {
+    peindreAuto(!!v.auto);
+    peindreGrand(!!v.agrandir);
+    // On ne réécrit pas le champ pendant que l'utilisateur y tape : le tour de rafraîchissement
+    // lui reprendrait son curseur une fois par seconde.
+    if (champMarge && document.activeElement !== champMarge) champMarge.value = String(v.marge);
+  });
   chrome.tabs.query({ active: true, currentWindow: true }, function (onglets) {
     const t = onglets && onglets[0];
     if (!t) return muette("Aucun onglet actif.");
@@ -178,3 +192,19 @@ boite.addEventListener('click', function () {
   peindreAuto(actif);
   chrome.storage.local.set({ auto: actif });
 });
+
+grand.addEventListener('click', function () {
+  const actif = grand.getAttribute('aria-pressed') !== 'true';
+  peindreGrand(actif);
+  chrome.storage.local.set({ agrandir: actif });
+});
+
+if (champMarge) {
+  champMarge.addEventListener('change', function () {
+    // Bornée ici aussi, pas seulement dans le noyau : une valeur absurde tapée par mégarde ne
+    // doit pas rester inscrite dans les réglages.
+    const ms = Math.max(0, Math.min(5000, Math.round(Number(champMarge.value) || 0)));
+    champMarge.value = String(ms);
+    chrome.storage.local.set({ marge: ms });
+  });
+}
