@@ -580,12 +580,14 @@
     window.addEventListener('message', function (e) {
       const d = e.data;
       if (!d || d.cle !== CLE) return;
+      if (reveil) reveil();   // une iframe parle : il y a donc un lecteur dans cette page
       if (d.type === 'journal') { JOURNAL.recevoir(d.ligne); return; }
       if (d.type === 'son') { etatSon = d.etat; detailLecteur = d.detail || null; motLecteur = Date.now(); noter(null); return; }
       if (d.type !== 'bonjour') return;
       try { e.source.postMessage({ cle: CLE, type: 'minutages', ranges: ranges, auto: !!reglages.auto(), anime: identite, episode: numero }, '*'); } catch (err) { /* ignore */ }
     });
 
+    let reveil = null;
     let occupe = false;
     async function tic() {
       if (location.href !== adresseVue) {
@@ -778,8 +780,30 @@
 
     if (typeof reglages.exposerRapport === 'function') reglages.exposerRapport(rapport);
 
-    tic();
-    setInterval(tic, 1500);
+    /**
+     * Quand se mettre au travail.
+     *
+     * Le script est présent sur toutes les pages, parce que la vidéo d'anime-sama ou de
+     * voiranime vit dans une iframe hébergée ailleurs, sur un domaine qui change seul — VOE et
+     * Earnvids en changent tout seuls, sans prévenir personne. Présent ne veut pas dire actif :
+     * sur un site connu on démarre tout de suite, et partout ailleurs on attend qu'une vidéo se
+     * montre, ici ou dans une iframe qui se signale. Une page sans vidéo ne coûte donc rien.
+     */
+    const connu = site.nom !== 'générique';
+    let enMarche = false;
+    function demarrer() {
+      if (enMarche) return;
+      enMarche = true;
+      clearInterval(filet);
+      tic();
+      setInterval(tic, 1500);
+    }
+    const filet = setInterval(function () {
+      if (document.querySelector('video')) demarrer();
+    }, 5000);
+    reveil = demarrer;   // un « bonjour » d'un lecteur réveille aussi la page du site
+    if (connu || document.querySelector('video')) demarrer();
+    else noter({ site: site.nom, etat: 'aucune vidéo sur cette page' });
   }
 
   // ======================================= RECONNAISSANCE DU GÉNÉRIQUE AU SON
@@ -1063,7 +1087,40 @@
 
   // ======================================================== PAGE DU LECTEUR
 
+  /**
+   * Le lecteur dort tant qu'il n'y a rien à lire.
+   *
+   * Ce script tourne dans chaque cadre de chaque page ouverte. Sans ce garde-fou, il y plaçait
+   * deux horloges — une recherche de vidéo toutes les 0,7 s, un appel au site toutes les 1,5 s —
+   * qui tournaient indéfiniment sur des pages qui n'auront jamais de vidéo.
+   *
+   * Le navigateur sait dire lui-même quand une vidéo apparaît : il suffit de l'écouter, ce qui
+   * ne coûte rien. Un contrôle toutes les cinq secondes sert de filet pour les lecteurs qui
+   * n'émettent aucun de ces événements.
+   */
+  const EVEILS = ['loadedmetadata', 'loadeddata', 'canplay', 'play', 'playing', 'durationchange'];
+
   function cotéLecteur() {
+    if (document.querySelector('video')) return lecteurActif();
+    let parti = false;
+    const surEvenement = function (e) {
+      if (e && e.target && e.target.tagName === 'VIDEO') demarrer();
+    };
+    const filet = setInterval(function () {
+      if (document.querySelector('video')) demarrer();
+    }, 5000);
+    function demarrer() {
+      if (parti) return;
+      parti = true;
+      clearInterval(filet);
+      EVEILS.forEach(function (n) { document.removeEventListener(n, surEvenement, true); });
+      lecteurActif();
+    }
+    // en capture : ces événements ne remontent pas d'eux-mêmes jusqu'au document.
+    EVEILS.forEach(function (n) { document.addEventListener(n, surEvenement, true); });
+  }
+
+  function lecteurActif() {
     let ranges = [], auto = false, sautes = {}, bouton = null, video = null;
     let provenanceReperes = '', dernierSaut = '';
     let autoAnnonce = false;

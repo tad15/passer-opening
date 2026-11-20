@@ -119,6 +119,38 @@ function telecharger() {
 const fichier = document.getElementById('fichier');
 if (fichier) fichier.addEventListener('click', telecharger);
 
+/** Une ligne du rapport, par son intitulé : « adresse », « titre », « résultat »… */
+function duRapport(cle) {
+  // « épisode » vit au milieu de la ligne de la saison : on accepte aussi un début de colonne.
+  const m = texteRapport.match(new RegExp('(?:^|\\s\\s)' + cle + '\\s*:\\s*([^\\n]+)', 'm'));
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * Le corps du message.
+ *
+ * Aucune extension ne peut joindre un fichier à un message : ni Gmail ni aucun autre service
+ * n'ouvre sa fenêtre de rédaction avec une pièce jointe, c'est une limite voulue des
+ * navigateurs. Le fichier est donc téléchargé, et il reste à le glisser dans le message.
+ * Le corps ne recopie plus le rapport — c'était illisible et ça faisait doublon — mais garde
+ * les quelques lignes qui permettent de s'y retrouver même si la pièce jointe est oubliée.
+ */
+function ligneCorps() {
+  const ep = duRapport('épisode');
+  return [
+    'Le signalement complet est dans le fichier « ' + nomFichier() + ' », qui vient d\'être',
+    'téléchargé : glisse-le dans ce message avant de l\'envoyer.',
+    '',
+    'Page : ' + (duRapport('adresse') || '—'),
+    'Anime : ' + (duRapport('titre') || '—') + (ep ? '   épisode ' + ep : ''),
+    'Résultat : ' + (duRapport('résultat') || '—'),
+    'Version : ' + (duRapport('version') || '—'),
+    '',
+    'Ce qui ne va pas, en une phrase :',
+    '',
+  ].join('\n');
+}
+
 /**
  * Ouvre un message pré-rempli.
  *
@@ -133,8 +165,7 @@ if (mail) {
     // Ouvrir l'onglet ferme cette fenêtre, et un téléchargement commencé l'instant d'avant
     // peut mourir avec elle : on lui laisse le temps de partir.
     const objet = "Signalement Passer l'opening" + (hoteCourant ? ' — ' + hoteCourant : '');
-    const corps = "Le signalement complet est dans le fichier joint (il vient d'être téléchargé).\n\n" +
-      "Début du rapport :\n\n" + texteRapport.slice(0, 1200) + "\n\n[...]";
+    const corps = ligneCorps();
     const adresse = 'https://mail.google.com/mail/?view=cm&fs=1&to=' +
       encodeURIComponent(DESTINATAIRE) + '&su=' + encodeURIComponent(objet) +
       '&body=' + encodeURIComponent(corps);

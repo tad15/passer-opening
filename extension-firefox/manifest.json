@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Passer l'opening",
-  "version": "3.15",
+  "version": "3.16",
   "description": "Un bouton « Passer l'opening » sur les lecteurs vidéo d'animes, d'après les minutages publics d'AniSkip, recalés à l'oreille.",
   "icons": {
     "16": "icones/icone-16.png",
