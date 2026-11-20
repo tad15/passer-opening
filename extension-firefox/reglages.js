@@ -1,4 +1,5 @@
 const boite = document.getElementById('auto');
+const sectionRapport = document.querySelectorAll('details')[1];
 let lignes = [], texteRapport = '';
 
 const mettre = function (id, val) {
@@ -21,7 +22,6 @@ function peindreAuto(actif) {
 }
 
 function afficher(v) {
-  peindreAuto(!!v.auto);
   const d = v.diag || {};
   mettre('site', d.site || d.hote);
   mettre('titre', d.titre);
@@ -33,23 +33,60 @@ function afficher(v) {
 
   lignes = v.journal || [];
   const j = document.getElementById('journal');
+  // On ne réécrit que si le texte a changé : sinon chaque tour effacerait la sélection de
+  // l'utilisateur et renverrait l'ascenseur en haut, une fois par seconde.
   if (j) {
-    j.textContent = lignes.length ? lignes.join('\n')
+    const texte = lignes.length ? lignes.join('\n')
       : "Journal vide. Lance la lecture d'un épisode jusqu'au générique, puis rouvre cette fenêtre.";
+    if (j.textContent !== texte) j.textContent = texte;
   }
 
   texteRapport = v.rapport || '';
   const r = document.getElementById('rapport');
-  if (r) r.textContent = texteRapport || 'Le signalement se remplit dès que la page est analysée.';
+  // Le rapport porte l'heure : il change à chaque seconde, et le rafraîchir pendant que
+  // l'utilisateur y sélectionne du texte le lui arracherait des mains. Tant que la section est
+  // ouverte, l'affichage est donc figé ; les boutons, eux, copient toujours la version du moment.
+  if (r && (!sectionRapport || !sectionRapport.open || r.textContent === '—')) {
+    r.textContent = texteRapport || 'Le signalement se remplit dès que la page est analysée.';
+  }
 }
 
-const quoi = { auto: false, diag: null, journal: [], rapport: '' };
-chrome.storage.local.get(quoi, afficher);
+/**
+ * Où la fenêtre prend ce qu'elle affiche.
+ *
+ * Elle le demande à l'onglet qui est devant l'utilisateur, et à lui seul. Le réglage du saut
+ * automatique, lui, vaut pour tous les onglets : il reste dans le stockage.
+ *
+ * On interroge le cadre principal (frameId 0) : c'est la page du site, celle qui sait de quel
+ * anime il s'agit. Les lecteurs, dans leurs iframes, n'ont pas cette vue d'ensemble.
+ */
+let hoteCourant = '';
 
-// Le contenu arrive souvent après l'ouverture de la fenêtre : on se tient au courant.
-chrome.storage.onChanged.addListener(function (changements, zone) {
-  if (zone === 'local') chrome.storage.local.get(quoi, afficher);
-});
+function demander() {
+  chrome.storage.local.get({ auto: false }, function (v) { peindreAuto(!!v.auto); });
+  chrome.tabs.query({ active: true, currentWindow: true }, function (onglets) {
+    const t = onglets && onglets[0];
+    if (!t) return muette("Aucun onglet actif.");
+    chrome.tabs.sendMessage(t.id, { type: 'po-etat' }, { frameId: 0 }, function (rep) {
+      if (chrome.runtime.lastError || !rep) {
+        return muette("L'extension n'analyse pas cette page. Ouvre un épisode, puis rouvre cette fenêtre.");
+      }
+      hoteCourant = (rep.diag && rep.diag.hote) || '';
+      afficher(rep);
+    });
+  });
+}
+
+/** Page hors de portée : pages internes du navigateur, boutique d'extensions, onglet neuf. */
+function muette(raison) {
+  afficher({ diag: null, journal: [], rapport: '' });
+  mettre('etat', raison);
+}
+
+demander();
+// L'anime met une à deux secondes à être identifié, le temps d'interroger AniList puis AniSkip :
+// la fenêtre se remet à jour tant qu'elle reste ouverte, au lieu de montrer un écran vide.
+setInterval(demander, 1000);
 
 function brancherCopie(id, texte, libelle) {
   const b = document.getElementById(id);
@@ -93,13 +130,15 @@ const mail = document.getElementById('mail');
 if (mail) {
   mail.addEventListener('click', function () {
     telecharger();
-    const d = (JSON.parse(sessionStorage.getItem('po-hote') || 'null')) || '';
-    const objet = "Signalement Passer l'opening" + (d ? ' — ' + d : '');
+    // Ouvrir l'onglet ferme cette fenêtre, et un téléchargement commencé l'instant d'avant
+    // peut mourir avec elle : on lui laisse le temps de partir.
+    const objet = "Signalement Passer l'opening" + (hoteCourant ? ' — ' + hoteCourant : '');
     const corps = "Le signalement complet est dans le fichier joint (il vient d'être téléchargé).\n\n" +
       "Début du rapport :\n\n" + texteRapport.slice(0, 1200) + "\n\n[...]";
-    chrome.tabs.create({ url: 'https://mail.google.com/mail/?view=cm&fs=1&to=' +
+    const adresse = 'https://mail.google.com/mail/?view=cm&fs=1&to=' +
       encodeURIComponent(DESTINATAIRE) + '&su=' + encodeURIComponent(objet) +
-      '&body=' + encodeURIComponent(corps) });
+      '&body=' + encodeURIComponent(corps);
+    setTimeout(function () { chrome.tabs.create({ url: adresse }); }, 400);
   });
 }
 

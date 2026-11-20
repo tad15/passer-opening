@@ -9,40 +9,39 @@
   } catch (e) { /* page sans accès au stockage */ }
   function auto() { return AUTO; }
 
+  /**
+   * État de CETTE page, gardé ici et nulle part ailleurs.
+   *
+   * Il était auparavant écrit dans le stockage de l'extension, sous des noms uniques. Or le script
+   * tourne sur toutes les pages ouvertes : la dernière à écrire effaçait les autres, et la fenêtre
+   * affichait l'état d'un onglet quelconque — souvent « cette page n'a pas été reconnue », venu
+   * d'un onglet sans rapport. D'où un anime reconnu qui semblait ne plus l'être.
+   *
+   * La fenêtre interroge maintenant l'onglet qu'elle a sous les yeux, et lui seul.
+   */
+  let DIAG = null, LIGNES = [], RAPPORT = null;
+
   function diag(d) {
     if (window.top !== window.self) return;
-    try { chrome.storage.local.set({ diag: Object.assign({ hote: location.hostname }, d) }); } catch (e) {}
+    DIAG = Object.assign({ hote: location.hostname }, d);
   }
-
-  // Le journal est écrit dans le stockage de l'extension, d'où la fenêtre de réglages le relit.
-  // On n'écrit qu'une fois par seconde : le relevé sonore produit une ligne par seconde.
-  let dernierEnvoi = 0, enAttente = null;
   function journal(lignes) {
     if (window.top !== window.self) return;
-    enAttente = lignes.slice();
-    const maintenant = Date.now();
-    if (maintenant - dernierEnvoi < 1000) return;
-    dernierEnvoi = maintenant;
-    try { chrome.storage.local.set({ journal: enAttente }); } catch (e) { /* page sans stockage */ }
+    LIGNES = lignes;
   }
-  setInterval(function () {
-    if (!enAttente || window.top !== window.self) return;
-    try { chrome.storage.local.set({ journal: enAttente }); } catch (e) {}
-    enAttente = null;
-  }, 2000);
+  function exposerRapport(fn) { RAPPORT = fn; }
 
-  // Le signalement est écrit dans le stockage, d'où la fenêtre de réglages le relit : pas de
-  // messagerie entre la fenêtre et la page, donc rien qui puisse se perdre en route.
-  let RAPPORT = null, dernierRapport = 0;
-  function exposerRapport(fn) { RAPPORT = fn; ecrireRapport(); }
-  function ecrireRapport() {
-    if (!RAPPORT || window.top !== window.self) return;
-    const maintenant = Date.now();
-    if (maintenant - dernierRapport < 2000) return;
-    dernierRapport = maintenant;
-    try { chrome.storage.local.set({ rapport: RAPPORT() }); } catch (e) { /* page sans stockage */ }
+  // La page du site répond ; celles des lecteurs, dans les iframes, se taisent.
+  if (window.top === window.self) {
+    try {
+      chrome.runtime.onMessage.addListener(function (msg, expediteur, repondre) {
+        if (!msg || msg.type !== 'po-etat') return;
+        let rapport = '';
+        try { rapport = RAPPORT ? RAPPORT() : ''; } catch (e) { rapport = 'rapport illisible : ' + e; }
+        repondre({ diag: DIAG, journal: LIGNES, rapport: rapport });
+      });
+    } catch (e) { /* page sans accès à la messagerie */ }
   }
-  setInterval(ecrireRapport, 3000);
 
   function json(url, options) {
     // Les deux API répondent « Access-Control-Allow-Origin: * », donc fetch suffit presque toujours ;
