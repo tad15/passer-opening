@@ -1532,7 +1532,72 @@
     }, 700);
   }
 
+  /**
+   * Crunchyroll : il ne manque que le geste.
+   *
+   * Partout ailleurs, l'extension doit deviner les minutages : interroger AniList puis AniSkip,
+   * puis recaler le résultat à l'oreille, parce que les minutages publiés valent pour une copie
+   * de l'épisode et pas forcément pour celle qu'on regarde. Ici, rien de tout cela n'a lieu
+   * d'être : Crunchyroll a encodé l'épisode lui-même, connaît ses repères à la seconde près, et
+   * affiche déjà son bouton « Skip Intro ».
+   *
+   * Et le calage à l'oreille serait de toute façon impossible : leur flux est chiffré, et un
+   * navigateur refuse l'analyse sonore d'un flux protégé. Se fier à AniSkip seul rendrait ici un
+   * résultat moins bon que ce que le site donne gratuitement.
+   *
+   * Ce qui manque à leur bouton, c'est qu'il faut le presser. C'est la seule chose qu'on ajoute.
+   *
+   * Le générique de fin est laissé tranquille, volontairement : sur Crunchyroll, le passer
+   * enchaîne sur l'épisode suivant. Personne n'a demandé qu'une extension décide de ça.
+   */
+  function crunchyroll() {
+    const LIBELLES = /^(?:skip intro|passer l'intro|passer l'introduction|intro überspringen|saltar intro|salta introduzione)$/i;
+    let presse = 0, derniere = 0;
+
+    function bouton() {
+      // Le repère propre d'abord ; les libellés ensuite, pour survivre à un changement de nom.
+      const direct = document.querySelector('[data-testid="skipIntroText"]');
+      if (direct) return direct.closest('button, [role="button"], a') || direct;
+      const candidats = document.querySelectorAll('button, [role="button"], a');
+      for (let i = 0; i < candidats.length; i++) {
+        const t = (candidats[i].textContent || '').trim();
+        if (t && t.length < 40 && LIBELLES.test(t)) return candidats[i];
+      }
+      return null;
+    }
+
+    setInterval(function () {
+      let b = null;
+      try { b = bouton(); } catch (e) { b = null; }
+      if (!b) { derniere = 0; return; }
+      const maintenant = Date.now();
+      if (derniere) return;            // déjà vu ce bouton : on ne le presse qu'une fois
+      derniere = maintenant;
+      if (!reglages.auto()) {
+        JOURNAL.ligne('Crunchyroll affiche son bouton « passer l\'intro » ; saut automatique désactivé, on n\'y touche pas');
+        return;
+      }
+      try {
+        b.click();
+        presse++;
+        JOURNAL.ligne('Crunchyroll : bouton « passer l\'intro » pressé (' + presse + ')');
+      } catch (e) {
+        JOURNAL.ligne('Crunchyroll : le bouton a refusé le clic — ' + e);
+      }
+    }, 700);
+
+    // « noter » appartient à la page du site ; ici on passe par le journal, qui, lui, traverse.
+    JOURNAL.ligne('Crunchyroll reconnu : ses repères sont les siens, on ne demande rien à AniSkip');
+  }
+
   // La page du site et celle du lecteur sont deux pages différentes : chacune fait sa part.
-  if (window.top === window.self) cotéSite();
-  cotéLecteur();
+  // Crunchyroll est à part : ni catalogue à interroger, ni son à analyser, juste un bouton à
+  // presser — et il peut vivre dans la page du site comme dans celle du lecteur.
+  if (/(^|\.)crunchyroll\.com$/.test(location.hostname)) {
+    if (window.top === window.self) cotéSite();
+    crunchyroll();
+  } else {
+    if (window.top === window.self) cotéSite();
+    cotéLecteur();
+  }
 });
